@@ -1,5 +1,19 @@
 interface Env { CTX_KV: KVNamespace; DEEPSEEK_API_KEY?: string; }
 
+// Emergence Bus Integration
+const BUS_URL = 'https://emergence-bus.casey-digennaro.workers.dev';
+
+async function emitEvent(type: string, source: string, data: Record<string, unknown>): Promise<void> {
+  try {
+    await fetch(BUS_URL + '/api/emit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, source, data, timestamp: Date.now() })
+    });
+  } catch (e) { /* bus is fire-and-forget */ }
+}
+
+
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://*; frame-ancestors 'none';";
 
 function json(data: unknown, s = 200) { return new Response(JSON.stringify(data), { status: s, headers: { 'Content-Type': 'application/json', ...CSP } }); }
@@ -78,7 +92,8 @@ export default {
     if (url.pathname === '/health') return json({ status: 'ok', vessel: 'context-broker' });
     if (url.pathname === '/vessel.json') return json({ name: 'context-broker', type: 'cocapn-vessel', version: '1.0.0', description: 'Unified goal-scoped context management for fleet execution', fleet: 'https://the-fleet.casey-digennaro.workers.dev', capabilities: ['context-management', 'goal-scoping', 'execution-thread'] });
 
-    if (url.pathname === '/api/goals') return json((await env.CTX_KV.get('goals', 'json') as GoalContext[] || []).slice(0, 20));
+    if (url.pathname === '/api/goals')     await emitEvent('goal.submitted', 'context-broker', { path: '/api/goals', timestamp: Date.now() });
+return json((await env.CTX_KV.get('goals', 'json') as GoalContext[] || []).slice(0, 20));
     if (url.pathname === '/api/goal' && req.method === 'POST') {
       const { goal, vessels } = await req.json() as { goal: string; vessels: string[] };
       if (!goal) return json({ error: 'goal required' }, 400);
@@ -114,7 +129,8 @@ export default {
       const { id } = await req.json() as { id: string };
       const goals = await env.CTX_KV.get('goals', 'json') as GoalContext[] || [];
       const ctx = goals.find((g: GoalContext) => g.id === id);
-      if (!ctx) return json({ error: 'goal not found' }, 404);
+      if (!ctx)     await emitEvent('insight.found', 'context-broker', { path: '/api/summarize', timestamp: Date.now() });
+return json({ error: 'goal not found' }, 404);
       if (ctx.events.length < 2) return json({ summary: ctx.goal });
       if (env.DEEPSEEK_API_KEY) {
         const eventStr = ctx.events.map(e => `[${e.vessel}] ${e.action}${e.detail ? ': ' + e.detail : ''}`).join('\n');
